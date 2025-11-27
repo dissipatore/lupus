@@ -35,7 +35,8 @@ import {
   Gavel,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useToast } from "@/hooks/use-toast"
+import { useToast } from "@/hooks/use-toast";
+import { Label } from '@/components/ui/label';
 
 
 type Player = {
@@ -127,7 +128,10 @@ export default function LupusManagerPage() {
   const { toast } = useToast();
   const [turn, setTurn] = useState(1);
   const [phase, setPhase] = useState<'Giorno' | 'Notte'>('Giorno');
-  
+  const [roleCounts, setRoleCounts] = useState<Record<string, number>>(
+    ROLES.reduce((acc, role) => ({ ...acc, [role.id]: 0 }), {})
+  );
+
   const livingPlayersCount = useMemo(() => players.filter(p => p.isAlive).length, [players]);
 
   const handleAddPlayer = () => {
@@ -186,30 +190,47 @@ export default function LupusManagerPage() {
         return p;
     }));
   };
+
+  const handleRoleCountChange = (roleId: string, count: number) => {
+    setRoleCounts(prev => ({...prev, [roleId]: Math.max(0, count)}));
+  }
+
+  const totalRolesSelected = useMemo(() => Object.values(roleCounts).reduce((sum, count) => sum + count, 0), [roleCounts]);
   
   const handleRandomizeRoles = () => {
-    if (players.length === 0) return;
-    
-    const availableRoles = [...ROLES];
-    const shuffledRoles: Role[] = [];
-
-    // Simple randomization, may not be balanced for a real game
-    // but good for a tool. For a real game, you'd want role counts.
-    // For now, let's just randomly assign from the available roles.
-    for (let i = 0; i < players.length; i++) {
-        const randomIndex = Math.floor(Math.random() * availableRoles.length);
-        shuffledRoles.push(availableRoles[randomIndex]);
+    if (players.length === 0) {
+        toast({ variant: 'destructive', title: 'Nessun giocatore', description: 'Aggiungi dei giocatori prima di assegnare i ruoli.' });
+        return;
+    }
+    if (totalRolesSelected !== players.length) {
+        toast({ variant: 'destructive', title: 'Conteggio ruoli non valido', description: `Il numero di ruoli selezionati (${totalRolesSelected}) deve corrispondere al numero di giocatori (${players.length}).` });
+        return;
     }
 
+    const rolesToAssign: Role[] = [];
+    for (const roleId in roleCounts) {
+        const role = ROLES.find(r => r.id === roleId);
+        if (role) {
+            for (let i = 0; i < roleCounts[roleId]; i++) {
+                rolesToAssign.push(role);
+            }
+        }
+    }
+    
+    // Shuffle the roles array
+    for (let i = rolesToAssign.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [rolesToAssign[i], rolesToAssign[j]] = [rolesToAssign[j], rolesToAssign[i]];
+    }
 
     setPlayers(players.map((player, index) => ({
       ...player,
-      role: shuffledRoles[index] || UNASSIGNED_ROLE,
+      role: rolesToAssign[index] || UNASSIGNED_ROLE,
     })));
 
     toast({
         title: "Ruoli Assegnati Casualmente!",
-        description: "I ruoli segreti sono stati distribuiti.",
+        description: "I ruoli segreti sono stati distribuiti secondo le tue specifiche.",
       })
   };
   
@@ -219,6 +240,7 @@ export default function LupusManagerPage() {
     setNewPlayerName('');
     setTurn(1);
     setPhase('Giorno');
+    setRoleCounts(ROLES.reduce((acc, role) => ({ ...acc, [role.id]: 0 }), {}));
   };
 
   const handleNextPhase = () => {
@@ -314,7 +336,7 @@ export default function LupusManagerPage() {
             </div>
           ) : (
             <div>
-              <Card className="mb-8">
+              <Card className="mb-6">
                 <CardHeader>
                     <CardTitle className="flex items-center justify-between">
                         <span>Stato Partita</span>
@@ -326,10 +348,7 @@ export default function LupusManagerPage() {
                     <CardDescription>Giocatori vivi: {livingPlayersCount} / {players.length}</CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col sm:flex-row gap-4 justify-center">
-                    <Button onClick={handleRandomizeRoles}>
-                        <Shuffle className="mr-2 h-4 w-4" /> Assegna Casualmente
-                    </Button>
-                     <Button onClick={handleNextPhase}>
+                    <Button onClick={handleNextPhase}>
                         {phase === 'Giorno' ? <Moon className="mr-2" /> : <Sun className="mr-2" />}
                         {phase === 'Giorno' ? 'Termina Giorno' : 'Termina Notte'}
                     </Button>
@@ -347,6 +366,47 @@ export default function LupusManagerPage() {
                         </Button>
                     </CardFooter>
                 )}
+              </Card>
+
+              <Card className="mb-8">
+                <CardHeader>
+                  <CardTitle>Assegnazione Ruoli Casuale</CardTitle>
+                  <CardDescription>
+                    Specifica quanti giocatori per ogni ruolo. Il totale deve corrispondere al numero di giocatori ({players.length}).
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  {ROLES.map(role => {
+                    const RoleIcon = role.icon;
+                    return (
+                      <div key={role.id} className="space-y-2">
+                        <Label htmlFor={`role-${role.id}`} className="flex items-center gap-2">
+                          <RoleIcon className="w-4 h-4" />
+                          {role.name}
+                        </Label>
+                        <Input
+                          id={`role-${role.id}`}
+                          type="number"
+                          min="0"
+                          value={roleCounts[role.id] ?? 0}
+                          onChange={(e) => handleRoleCountChange(role.id, parseInt(e.target.value, 10) || 0)}
+                          className="w-full"
+                        />
+                      </div>
+                    )
+                  })}
+                </CardContent>
+                <CardFooter className="flex-col gap-2">
+                    <div className={cn(
+                        'w-full text-center p-2 rounded-md',
+                        totalRolesSelected === players.length ? 'bg-green-500/20 text-green-300' : 'bg-destructive/20 text-destructive-foreground'
+                    )}>
+                        {totalRolesSelected} / {players.length} ruoli selezionati
+                    </div>
+                  <Button onClick={handleRandomizeRoles} className="w-full" disabled={totalRolesSelected !== players.length}>
+                      <Shuffle className="mr-2 h-4 w-4" /> Assegna Casualmente ({totalRolesSelected})
+                  </Button>
+                </CardFooter>
               </Card>
               
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
